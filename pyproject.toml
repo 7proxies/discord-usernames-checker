@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-username-checker"
+version = "0.1.0"
+description = "check which discord usernames are still free - 3/4/5 letter names and your own patterns"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "7proxies" }]
+keywords = ["discord", "username", "checker", "cli", "pomelo", "sniper"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "requests>=2.28",
+    "PySocks>=1.7",
+    "rich>=13.0",
+    "questionary>=2.0",
+    "art>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+dusc = "discord_username_checker.cli:main"
+discord-username-checker = "discord_username_checker.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/7proxies/discord-usernames-checker"
+Issues = "https://github.com/7proxies/discord-usernames-checker/issues"
+
+[tool.setuptools.packages.find]
+include = ["discord_username_checker*"]

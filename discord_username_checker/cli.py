@@ -149,26 +149,45 @@ def ask_pattern(console):
     return pat
 
 
+TOKEN_CHOICE = "account tokens (recommended)"
+API_CHOICE = "discord api (no login)"
+
+
+def _enable_token_mode(settings, console):
+    console.print("[yellow]  heads up: using account tokens is self-botting and can get the[/yellow]")
+    console.print("[yellow]  account banned. use throwaway accounts only.[/yellow]")
+    if not questionary.confirm("ok with that?").ask():
+        settings["mode"] = "api"
+        return
+    settings["mode"] = "token"
+    toks = questionary.text("tokens file:", default=settings.get("tokens") or "tokens.txt").ask()
+    settings["tokens"] = toks or "tokens.txt"
+    gap = questionary.text("min seconds between requests per token:", default=str(settings["token_gap"])).ask()
+    try:
+        settings["token_gap"] = max(0.0, float(gap))
+    except (TypeError, ValueError):
+        pass
+
+
+def choose_mode(settings, console):
+    pick = questionary.select(
+        "how do you want to check?",
+        choices=[TOKEN_CHOICE, API_CHOICE],
+    ).ask()
+    if pick == TOKEN_CHOICE:
+        _enable_token_mode(settings, console)
+    else:
+        settings["mode"] = "api"
+
+
 def edit_settings(settings, console):
     pick = questionary.select(
         "check via:",
-        choices=["discord api (no login)", "account tokens (against ToS!)"],
-        default="account tokens (against ToS!)" if settings["mode"] == "token" else "discord api (no login)",
+        choices=[TOKEN_CHOICE, API_CHOICE],
+        default=TOKEN_CHOICE if settings["mode"] == "token" else API_CHOICE,
     ).ask()
-    if pick and pick.startswith("account"):
-        console.print("[yellow]  heads up: using account tokens is self-botting and can get the[/yellow]")
-        console.print("[yellow]  account banned. use throwaway accounts only.[/yellow]")
-        if questionary.confirm("ok with that?").ask():
-            settings["mode"] = "token"
-            toks = questionary.text("tokens file:", default=settings.get("tokens") or "tokens.txt").ask()
-            settings["tokens"] = toks or "tokens.txt"
-            gap = questionary.text("min seconds between requests per token:", default=str(settings["token_gap"])).ask()
-            try:
-                settings["token_gap"] = max(0.0, float(gap))
-            except (TypeError, ValueError):
-                pass
-        else:
-            settings["mode"] = "api"
+    if pick == TOKEN_CHOICE:
+        _enable_token_mode(settings, console)
     else:
         settings["mode"] = "api"
 
@@ -270,6 +289,9 @@ def main():
         console.print("  the menu needs a real terminal. or use flags like --three / --file / --pattern.")
         return
     try:
+        if not (args.token or args.tokens):
+            # ask up front, token mode is the recommended default
+            choose_mode(settings, console)
         interactive(settings, console)
     except KeyboardInterrupt:
         console.print("\n  bye")

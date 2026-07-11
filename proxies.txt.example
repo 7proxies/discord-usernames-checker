@@ -1,0 +1,13 @@
+# put one proxy per line, any of these formats work:
+#   host:port
+#   host:port:user:pass
+#   http://user:pass@host:port
+#   socks5://user:pass@host:port
+# lines starting with # are ignored
+#
+# datacenter ips get blocked by discord (403), so residential proxies work best.
+# rename this file to proxies.txt and it gets picked up automatically.
+
+123.45.67.89:8080
+123.45.67.90:8080:myuser:mypass
+socks5://user:pass@123.45.67.91:1080

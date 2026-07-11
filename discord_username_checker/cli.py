@@ -19,12 +19,14 @@ CAP = 300_000
 def parse_args(argv=None):
     p = argparse.ArgumentParser(prog="dusc", description="check which discord usernames are free")
     p.add_argument("--pattern", help="pattern spec, e.g. co?? (? letter, # digit, * letter/digit, %% anything)")
+    p.add_argument("--file", help="check usernames from a file, one per line")
     p.add_argument("--three", action="store_true", help="all 3 letter names")
     p.add_argument("--four", action="store_true", help="all 4 letter names")
     p.add_argument("--five", action="store_true", help="all 5 letter names")
     p.add_argument("--proxies", help="path to a proxies file")
     p.add_argument("--out", default="available.txt", help="where to save free names")
     p.add_argument("--workers", type=int, default=8, help="how many to check at once")
+    p.add_argument("--gap", type=float, default=0.6, help="min seconds between requests per ip")
     p.add_argument("--no-banner", action="store_true", help="skip the ascii art")
     return p.parse_args(argv)
 
@@ -42,7 +44,34 @@ def build_names(pattern):
     return pattern.generate(), est
 
 
-def do_run(pattern, settings, console, ask):
+def load_usernames(path):
+    seen = set()
+    out = []
+    with open(path) as f:
+        for line in f:
+            n = sanitize(line.strip())
+            if n and patterns.is_valid(n) and n not in seen:
+                seen.add(n)
+                out.append(n)
+    return out
+
+
+def run_names(names, total, settings, console):
+    plist = None
+    path = settings["proxies"]
+    if path:
+        if os.path.exists(path):
+            plist = proxymod.load(path)
+            console.print(f"  [dim]using {len(plist)} proxies[/]")
+        else:
+            console.print(f"  [yellow]proxies file not found: {path}[/]")
+
+    checker = Checker(proxies=plist, workers=settings["workers"], gap=settings["gap"])
+    counts = results.run(checker, names, total, settings["out"], console)
+    results.summary(console, counts, settings["out"], checker)
+
+
+def run_pattern(pattern, settings, console, ask):
     est = pattern.estimate()
     if est == 0:
         console.print("  [red]that pattern makes no valid names[/]")
@@ -50,21 +79,23 @@ def do_run(pattern, settings, console, ask):
     if ask and est > 2000:
         if not questionary.confirm(f"that's about {est:,} names, go?").ask():
             return
-
-    pool = None
-    proxy_path = settings["proxies"]
-    if proxy_path:
-        if os.path.exists(proxy_path):
-            plist = proxymod.load(proxy_path)
-            pool = proxymod.Pool(plist)
-            console.print(f"  [dim]using {len(plist)} proxies[/]")
-        else:
-            console.print(f"  [yellow]proxies file not found: {proxy_path}[/]")
-
     names, total = build_names(pattern)
-    checker = Checker(proxy_pool=pool, workers=settings["workers"])
-    counts = results.run(checker, names, total, settings["out"], console)
-    results.summary(console, counts, settings["out"])
+    run_names(names, total, settings, console)
+
+
+def run_file(path, settings, console, ask):
+    if not os.path.exists(path):
+        console.print(f"  [red]no such file: {path}[/]")
+        return
+    names = load_usernames(path)
+    if not names:
+        console.print("  [yellow]no valid usernames in that file[/]")
+        return
+    console.print(f"  [dim]loaded {len(names):,} names from {path}[/]")
+    if ask and len(names) > 2000:
+        if not questionary.confirm(f"that's {len(names):,} names, go?").ask():
+            return
+    run_names(names, len(names), settings, console)
 
 
 def ask_pattern(console):
@@ -88,6 +119,11 @@ def edit_settings(settings, console):
     workers = questionary.text("workers:", default=str(settings["workers"])).ask()
     if workers and workers.isdigit():
         settings["workers"] = max(1, int(workers))
+    gap = questionary.text("min seconds between requests per ip:", default=str(settings["gap"])).ask()
+    try:
+        settings["gap"] = max(0.0, float(gap))
+    except (TypeError, ValueError):
+        pass
     out = questionary.text("save free names to:", default=settings["out"]).ask()
     if out:
         settings["out"] = out
@@ -102,6 +138,7 @@ def interactive(settings, console):
                 "4 letter names",
                 "5 letter names",
                 "custom pattern",
+                "check from a file",
                 "settings",
                 "quit",
             ],
@@ -112,13 +149,18 @@ def interactive(settings, console):
         if choice == "settings":
             edit_settings(settings, console)
             continue
+        if choice == "check from a file":
+            path = questionary.text("file with usernames (one per line):").ask()
+            if path:
+                run_file(path, settings, console, ask=True)
+            continue
         if choice == "custom pattern":
             pat = ask_pattern(console)
             if pat is None:
                 continue
         else:
             pat = patterns.letters(int(choice[0]))
-        do_run(pat, settings, console, ask=True)
+        run_pattern(pat, settings, console, ask=True)
 
 
 def main():
@@ -127,9 +169,18 @@ def main():
     if not args.no_banner:
         banner.show(console)
 
-    settings = {"workers": args.workers, "proxies": args.proxies, "out": args.out}
+    settings = {
+        "workers": args.workers,
+        "proxies": args.proxies,
+        "out": args.out,
+        "gap": args.gap,
+    }
     if not settings["proxies"] and os.path.exists("proxies.txt"):
         settings["proxies"] = "proxies.txt"
+
+    if args.file:
+        run_file(args.file, settings, console, ask=False)
+        return
 
     pat = None
     if args.pattern:
@@ -142,7 +193,7 @@ def main():
         pat = patterns.letters(5)
 
     if pat is not None:
-        do_run(pat, settings, console, ask=False)
+        run_pattern(pat, settings, console, ask=False)
         return
 
     interactive(settings, console)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import sys
 
 import questionary
 from rich.console import Console
@@ -260,4 +261,10 @@ def main():
         run_pattern(pat, settings, console, ask=False)
         return
 
-    interactive(settings, console)
+    if not sys.stdin.isatty():
+        console.print("  the menu needs a real terminal. or use flags like --three / --file / --pattern.")
+        return
+    try:
+        interactive(settings, console)
+    except KeyboardInterrupt:
+        console.print("\n  bye")

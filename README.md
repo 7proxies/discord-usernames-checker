@@ -81,6 +81,12 @@ dusc --file names.txt
 bad ones (too short, two dots, starts with a dot, uppercase) get cleaned out and
 duplicates are dropped, then it checks the rest.
 
+there's a `wordlist.txt` in the repo with ~500 nice names to try:
+
+```bash
+dusc --file wordlist.txt
+```
+
 ## how fast / rate limits
 
 discord doesn't give a nice number for this endpoint, it's a hidden per-ip bucket. if you

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discord-username-checker"
-version = "0.1.0"
+version = "1.0.0"
 description = "check which discord usernames are still free - 3/4/5 letter names and your own patterns"
 readme = "README.md"
 requires-python = ">=3.9"

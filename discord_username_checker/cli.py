@@ -156,8 +156,8 @@ def edit_settings(settings, console):
         default="account tokens (against ToS!)" if settings["mode"] == "token" else "discord api (no login)",
     ).ask()
     if pick and pick.startswith("account"):
-        console.print("  [yellow]heads up: using account tokens is self-botting and can get the")
-        console.print("  account banned. use throwaway accounts only.[/]")
+        console.print("[yellow]  heads up: using account tokens is self-botting and can get the[/yellow]")
+        console.print("[yellow]  account banned. use throwaway accounts only.[/yellow]")
         if questionary.confirm("ok with that?").ask():
             settings["mode"] = "token"
             toks = questionary.text("tokens file:", default=settings.get("tokens") or "tokens.txt").ask()
@@ -202,21 +202,26 @@ def interactive(settings, console):
         if not choice or choice == "quit":
             console.print("  bye")
             return
-        if choice == "settings":
-            edit_settings(settings, console)
-            continue
-        if choice == "check from a file":
-            path = questionary.text("file with usernames (one per line):").ask()
-            if path:
-                run_file(path, settings, console, ask=True)
-            continue
-        if choice == "custom pattern":
-            pat = ask_pattern(console)
-            if pat is None:
+        try:
+            if choice == "settings":
+                edit_settings(settings, console)
                 continue
-        else:
-            pat = patterns.letters(int(choice[0]))
-        run_pattern(pat, settings, console, ask=True)
+            if choice == "check from a file":
+                path = questionary.text("file with usernames (one per line):").ask()
+                if path:
+                    run_file(path, settings, console, ask=True)
+                continue
+            if choice == "custom pattern":
+                pat = ask_pattern(console)
+                if pat is None:
+                    continue
+            else:
+                pat = patterns.letters(int(choice[0]))
+            run_pattern(pat, settings, console, ask=True)
+        except KeyboardInterrupt:
+            console.print("\n  stopped")
+        except Exception as e:
+            console.print(f"  oops: {e}", markup=False, style="red")
 
 
 def main():

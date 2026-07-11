@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import threading
-import time
 from enum import Enum
 
 import requests
+
+from .proxies import Pool
 
 ENDPOINT = "https://discord.com/api/v9/unique-username/username-attempt-unauthed"
 UA = (
@@ -49,12 +50,13 @@ def _ask(session, name, proxy, timeout):
 
 
 class Checker:
-    def __init__(self, proxy_pool=None, workers=8, timeout=10, max_retries=5):
-        self.pool = proxy_pool
+    def __init__(self, proxies=None, workers=8, timeout=10, gap=0.6, max_errors=4):
+        self.pool = Pool(proxies, gap=gap)
         self.workers = max(1, workers)
         self.timeout = timeout
-        self.max_retries = max_retries
+        self.max_errors = max_errors
         self.interrupted = False
+        self.blocked_out = False
         self._stop = threading.Event()
         self._local = threading.local()
 
@@ -71,17 +73,28 @@ class Checker:
 
     def _check(self, name):
         session = self._session()
-        for _ in range(self.max_retries):
-            if self._stop.is_set():
-                return name, Status.ERROR
-            proxy = self.pool.next() if self.pool else None
-            status, wait = _ask(session, name, proxy, self.timeout)
+        errors = 0
+        while not self._stop.is_set():
+            lane = self.pool.acquire(self._stop)
+            if lane is None:
+                return name, Status.RATE_LIMITED
+            status, wait = _ask(session, name, lane.url, self.timeout)
             if status is Status.RATE_LIMITED:
-                time.sleep(min(wait, 10))
+                # got rate limited, cool this ip down and try the name again later
+                self.pool.penalize(lane, wait)
                 continue
-            if status is Status.BLOCKED and self.pool and len(self.pool) > 1:
-                # this exit ip is burned, grab another proxy and retry
-                time.sleep(0.3)
+            if status is Status.BLOCKED:
+                if len(self.pool) == 1:
+                    # only got our own ip and discord blocked it, no point going on
+                    self.blocked_out = True
+                    self._stop.set()
+                    return name, Status.BLOCKED
+                self.pool.penalize(lane, 60)
+                continue
+            if status is Status.ERROR:
+                errors += 1
+                if errors >= self.max_errors:
+                    return name, Status.ERROR
                 continue
             return name, status
         return name, Status.RATE_LIMITED

@@ -49,7 +49,7 @@ def test_ask_403_blocked():
     assert _ask(s, "abc", None, 10)[0] is Status.BLOCKED
 
 
-def test_check_retries_on_rate_limit(monkeypatch):
+def test_check_waits_then_retries_on_rate_limit(monkeypatch):
     seq = [(Status.RATE_LIMITED, 0.0), (Status.AVAILABLE, 0.0)]
     calls = {"i": 0}
 
@@ -59,16 +59,23 @@ def test_check_retries_on_rate_limit(monkeypatch):
         return r
 
     monkeypatch.setattr(checker_mod, "_ask", fake_ask)
-    monkeypatch.setattr(checker_mod.time, "sleep", lambda *_: None)
 
-    name, status = Checker(workers=1)._check("abc")
+    name, status = Checker(workers=1, gap=0.0)._check("abc")
     assert status is Status.AVAILABLE
-    assert calls["i"] == 2
+    assert calls["i"] == 2  # it did not give up, it tried the name again
+
+
+def test_single_ip_block_stops(monkeypatch):
+    monkeypatch.setattr(checker_mod, "_ask", lambda *a, **k: (Status.BLOCKED, 0.0))
+    ch = Checker(workers=1, gap=0.0)
+    name, status = ch._check("abc")
+    assert status is Status.BLOCKED
+    assert ch.blocked_out is True
 
 
 def test_run_collects_every_name(monkeypatch):
     monkeypatch.setattr(checker_mod, "_ask", lambda *a, **k: (Status.AVAILABLE, 0.0))
     got = []
-    Checker(workers=3).run(iter(["aaa", "bbb", "ccc", "ddd"]), lambda n, s: got.append((n, s)))
+    Checker(workers=3, gap=0.0).run(iter(["aaa", "bbb", "ccc", "ddd"]), lambda n, s: got.append((n, s)))
     assert sorted(n for n, _ in got) == ["aaa", "bbb", "ccc", "ddd"]
     assert all(s is Status.AVAILABLE for _, s in got)

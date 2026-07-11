@@ -38,6 +38,7 @@ pick from the menu:
 
 - **3 / 4 / 5 letter names** - checks every combo
 - **custom pattern** - build your own with the highlighter
+- **check from a file** - give it a list of names and it checks those
 - **settings** - proxies, workers, output file
 
 free names get printed as they're found and saved to `available.txt`.
@@ -66,13 +67,44 @@ there's also a flag version if you want to script it:
 dusc --pattern "co??"     # ? letter, # digit, * letter/digit, % anything
 dusc --three              # all 3 letter names
 dusc --four --workers 20
+dusc --file names.txt     # check a list from a file
 ```
+
+## check from a file
+
+got your own list? put one name per line and point the tool at it:
+
+```bash
+dusc --file names.txt
+```
+
+bad ones (too short, two dots, starts with a dot, uppercase) get cleaned out and
+duplicates are dropped, then it checks the rest.
+
+## how fast / rate limits
+
+discord doesn't give a nice number for this endpoint, it's a hidden per-ip bucket. if you
+hammer it you get thrown in a cooldown that can be 10-15 minutes long. if you go slow it
+holds up fine.
+
+so the tool paces itself: it spaces requests per ip (`--gap`, default 0.6s ≈ ~1.5/sec) and
+if it does get rate limited it just waits the cooldown out and retries the name instead of
+dropping it. nothing gets lost, it only goes slower.
+
+rough idea of what you get from **one ip** (no proxies):
+
+- all 3 letter names (17,576) - easy, one evening
+- a night of running - low tens of thousands, ish
+- all 4 letter names (456,976) - not happening on one ip, use proxies
+
+want more? add proxies, every extra ip is another lane running in parallel. bump `--gap`
+down a bit if your proxies are good, up if you're getting rate limited.
 
 ## proxies
 
-discord blocks datacenter ips (you'll get a bunch of 403s), so for bigger runs you want
-residential proxies. drop them in a `proxies.txt` next to where you run it and they get
-picked up automatically. one per line:
+each proxy is its own ip with its own limit, so more proxies = more throughput. drop them
+in a `proxies.txt` next to where you run it and they get picked up automatically, one per
+line:
 
 ```
 host:port
@@ -80,8 +112,14 @@ host:port:user:pass
 socks5://user:pass@host:port
 ```
 
-see `proxies.txt.example`. without proxies it still works, just slower and you'll hit
-rate limits sooner.
+see `proxies.txt.example`. residential proxies are best - some datacenter ips just get a
+flat 403 from discord.
+
+**on a vpn (mullvad etc)?** just run it while connected, all traffic goes through the vpn
+ip. when it hits a cooldown, switch to another server for a fresh ip and it keeps going.
+one ip at a time so it's not fast, but it's free and it's only you.
+
+without any of that it still works, just slower and you'll hit cooldowns sooner.
 
 ## disclaimer
 

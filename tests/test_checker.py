@@ -1,5 +1,6 @@
 import discord_username_checker.checker as checker_mod
-from discord_username_checker.checker import Checker, Status, _ask
+from discord_username_checker.checker import Checker, Status, _ask, build_lanes
+from discord_username_checker.proxies import Lane
 
 
 class FakeResp:
@@ -17,8 +18,10 @@ class FakeResp:
 class FakeSession:
     def __init__(self, resp):
         self.resp = resp
+        self.last = None
 
-    def post(self, *a, **k):
+    def post(self, url, **kwargs):
+        self.last = (url, kwargs)
         return self.resp
 
 
@@ -49,11 +52,36 @@ def test_ask_403_blocked():
     assert _ask(s, "abc", None, 10)[0] is Status.BLOCKED
 
 
+def test_ask_with_token_sends_auth_header_to_auth_endpoint():
+    s = FakeSession(FakeResp(200, {"taken": False}))
+    lane = Lane(token="secret-token")
+    status, _ = _ask(s, "abc", lane, 10, auth_endpoint="https://auth.example/check")
+    assert status is Status.AVAILABLE
+    url, kwargs = s.last
+    assert url == "https://auth.example/check"
+    assert kwargs["headers"]["authorization"] == "secret-token"
+
+
+def test_ask_bad_token():
+    s = FakeSession(FakeResp(401))
+    assert _ask(s, "abc", Lane(token="x"), 10)[0] is Status.BAD_TOKEN
+
+
+def test_ask_bad_endpoint():
+    s = FakeSession(FakeResp(404))
+    assert _ask(s, "abc", Lane(token="x"), 10)[0] is Status.BAD_ENDPOINT
+
+
+def test_build_lanes_pairs_tokens_with_proxies():
+    lanes = build_lanes("token", ["p1", "p2"], ["t1", "t2", "t3"])
+    assert [(ln.token, ln.proxy) for ln in lanes] == [("t1", "p1"), ("t2", "p2"), ("t3", "p1")]
+
+
 def test_check_waits_then_retries_on_rate_limit(monkeypatch):
     seq = [(Status.RATE_LIMITED, 0.0), (Status.AVAILABLE, 0.0)]
     calls = {"i": 0}
 
-    def fake_ask(session, name, proxy, timeout):
+    def fake_ask(session, name, lane, timeout, auth_endpoint=None):
         r = seq[calls["i"]]
         calls["i"] += 1
         return r
@@ -63,6 +91,14 @@ def test_check_waits_then_retries_on_rate_limit(monkeypatch):
     name, status = Checker(workers=1, gap=0.0)._check("abc")
     assert status is Status.AVAILABLE
     assert calls["i"] == 2  # it did not give up, it tried the name again
+
+
+def test_dead_token_gets_dropped(monkeypatch):
+    monkeypatch.setattr(checker_mod, "_ask", lambda *a, **k: (Status.BAD_TOKEN, 0.0))
+    ch = Checker(mode="token", tokens=["t1"], workers=1, gap=0.0)
+    name, status = ch._check("abc")
+    assert status is Status.ERROR
+    assert ch.bad_tokens == 1
 
 
 def test_single_ip_block_stops(monkeypatch):

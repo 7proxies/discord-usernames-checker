@@ -1,0 +1,11 @@
+# account tokens, one per line. USE THROWAWAY ACCOUNTS.
+# automating your account with its token is self-botting, it's against discord's
+# terms and the account can get banned. don't put your main here.
+#
+# the tool only ever sends the "is this name free" check, it never changes your
+# username. still, alts only.
+#
+# rename to tokens.txt and pick "account tokens" in settings (or use --tokens).
+
+MTAxxxxxxxxxxxxxxxxxxxxxx.xxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MTAyyyyyyyyyyyyyyyyyyyyyy.yyyyyy.yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy

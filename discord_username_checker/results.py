@@ -70,6 +70,10 @@ def summary(console, counts, out_path, checker=None):
     errors = counts.get(Status.ERROR, 0)
     console.print()
     console.print(f"  [bold green]{free}[/] free   [dim]{taken} taken[/]")
+    if checker is not None and checker.endpoint_bad:
+        console.print("  [red]auth endpoint returned 404 - discord moved it, set --auth-endpoint[/]")
+    if checker is not None and checker.bad_tokens:
+        console.print(f"  [red]{checker.bad_tokens} tokens were dead (bad/expired)[/]")
     if checker is not None and checker.blocked_out:
         console.print("  [red]your ip got blocked (403) - add proxies and try again[/]")
     if limited:

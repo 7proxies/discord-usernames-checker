@@ -10,5 +10,7 @@ venv/
 
 # your own stuff, don't commit
 proxies.txt
+tokens.txt
+token.txt
 available.txt
 hits.txt

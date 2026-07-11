@@ -10,7 +10,7 @@ from rich.console import Console
 from . import banner, highlighter, patterns
 from . import proxies as proxymod
 from . import results
-from .checker import Checker
+from .checker import AUTH_ENDPOINT, Checker
 
 # if a pattern is bigger than this we stream it instead of holding it in memory
 CAP = 300_000
@@ -24,9 +24,13 @@ def parse_args(argv=None):
     p.add_argument("--four", action="store_true", help="all 4 letter names")
     p.add_argument("--five", action="store_true", help="all 5 letter names")
     p.add_argument("--proxies", help="path to a proxies file")
+    p.add_argument("--token", help="check with one account token (against discord ToS, use an alt)")
+    p.add_argument("--tokens", help="file with account tokens, one per line")
+    p.add_argument("--auth-endpoint", default=AUTH_ENDPOINT, help="override the token check endpoint")
     p.add_argument("--out", default="available.txt", help="where to save free names")
     p.add_argument("--workers", type=int, default=8, help="how many to check at once")
-    p.add_argument("--gap", type=float, default=0.6, help="min seconds between requests per ip")
+    p.add_argument("--gap", type=float, default=0.6, help="min seconds between requests per ip (api mode)")
+    p.add_argument("--token-gap", type=float, default=3.0, help="min seconds between requests per token")
     p.add_argument("--no-banner", action="store_true", help="skip the ascii art")
     return p.parse_args(argv)
 
@@ -56,17 +60,48 @@ def load_usernames(path):
     return out
 
 
-def run_names(names, total, settings, console):
-    plist = None
+def _load_proxies(settings, console):
     path = settings["proxies"]
-    if path:
-        if os.path.exists(path):
-            plist = proxymod.load(path)
-            console.print(f"  [dim]using {len(plist)} proxies[/]")
-        else:
-            console.print(f"  [yellow]proxies file not found: {path}[/]")
+    if not path:
+        return None
+    if not os.path.exists(path):
+        console.print(f"  [yellow]proxies file not found: {path}[/]")
+        return None
+    plist = proxymod.load(path)
+    console.print(f"  [dim]using {len(plist)} proxies[/]")
+    return plist
 
-    checker = Checker(proxies=plist, workers=settings["workers"], gap=settings["gap"])
+
+def _resolve_tokens(settings):
+    if settings.get("token_inline"):
+        return list(settings["token_inline"])
+    path = settings.get("tokens")
+    if path and os.path.exists(path):
+        return proxymod.load_lines(path)
+    return []
+
+
+def run_names(names, total, settings, console):
+    plist = _load_proxies(settings, console)
+    mode = settings["mode"]
+    tokens = None
+    gap = settings["gap"]
+    if mode == "token":
+        tokens = _resolve_tokens(settings)
+        if not tokens:
+            console.print("  [red]token mode is on but no tokens are set (settings / --tokens)[/]")
+            return
+        gap = settings["token_gap"]
+        console.print(f"  [dim]using {len(tokens)} account token(s) - hope they're alts[/]")
+
+    checker = Checker(
+        mode=mode,
+        proxies=plist,
+        tokens=tokens,
+        workers=settings["workers"],
+        gap=gap,
+        auth_endpoint=settings["auth_endpoint"],
+    )
     counts = results.run(checker, names, total, settings["out"], console)
     results.summary(console, counts, settings["out"], checker)
 
@@ -114,16 +149,33 @@ def ask_pattern(console):
 
 
 def edit_settings(settings, console):
+    pick = questionary.select(
+        "check via:",
+        choices=["discord api (no login)", "account tokens (against ToS!)"],
+        default="account tokens (against ToS!)" if settings["mode"] == "token" else "discord api (no login)",
+    ).ask()
+    if pick and pick.startswith("account"):
+        console.print("  [yellow]heads up: using account tokens is self-botting and can get the")
+        console.print("  account banned. use throwaway accounts only.[/]")
+        if questionary.confirm("ok with that?").ask():
+            settings["mode"] = "token"
+            toks = questionary.text("tokens file:", default=settings.get("tokens") or "tokens.txt").ask()
+            settings["tokens"] = toks or "tokens.txt"
+            gap = questionary.text("min seconds between requests per token:", default=str(settings["token_gap"])).ask()
+            try:
+                settings["token_gap"] = max(0.0, float(gap))
+            except (TypeError, ValueError):
+                pass
+        else:
+            settings["mode"] = "api"
+    else:
+        settings["mode"] = "api"
+
     proxies = questionary.text("proxies file (blank = none):", default=settings["proxies"] or "").ask()
     settings["proxies"] = proxies or None
     workers = questionary.text("workers:", default=str(settings["workers"])).ask()
     if workers and workers.isdigit():
         settings["workers"] = max(1, int(workers))
-    gap = questionary.text("min seconds between requests per ip:", default=str(settings["gap"])).ask()
-    try:
-        settings["gap"] = max(0.0, float(gap))
-    except (TypeError, ValueError):
-        pass
     out = questionary.text("save free names to:", default=settings["out"]).ask()
     if out:
         settings["out"] = out
@@ -131,6 +183,9 @@ def edit_settings(settings, console):
 
 def interactive(settings, console):
     while True:
+        tag = "  [magenta](token mode)[/]" if settings["mode"] == "token" else ""
+        if tag:
+            console.print(tag)
         choice = questionary.select(
             "what do you want to check?",
             choices=[
@@ -174,9 +229,18 @@ def main():
         "proxies": args.proxies,
         "out": args.out,
         "gap": args.gap,
+        "token_gap": args.token_gap,
+        "auth_endpoint": args.auth_endpoint,
+        "mode": "api",
+        "tokens": args.tokens,
+        "token_inline": [args.token] if args.token else None,
     }
     if not settings["proxies"] and os.path.exists("proxies.txt"):
         settings["proxies"] = "proxies.txt"
+    if args.token or args.tokens:
+        settings["mode"] = "token"
+    elif not settings["tokens"] and os.path.exists("tokens.txt"):
+        settings["tokens"] = "tokens.txt"
 
     if args.file:
         run_file(args.file, settings, console, ask=False)

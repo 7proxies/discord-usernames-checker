@@ -121,6 +121,31 @@ one ip at a time so it's not fast, but it's free and it's only you.
 
 without any of that it still works, just slower and you'll hit cooldowns sooner.
 
+## account token mode (advanced)
+
+the normal mode uses discord's public signup check (no login). there's also a token mode
+that checks with a logged-in account instead, so the rate limit is per account, not per ip.
+give it a list of accounts and each one is its own lane.
+
+> **warning:** automating an account with its token is self-botting. it's against
+> discord's terms and the account **can get banned**. use throwaway accounts, not your
+> main. this only ever sends the "is this name free" check, it never touches your actual
+> username, but the ban risk is on you.
+
+put tokens in `tokens.txt` (one per line, gitignored) and pick "account tokens" in
+settings, or:
+
+```bash
+dusc --tokens tokens.txt
+dusc --token "your.alt.token" --pattern "co??"
+```
+
+it paces each account (`--token-gap`, default 3s) and cools one down if it gets rate
+limited, same as the ip lanes. dead tokens get dropped automatically.
+
+if the check endpoint ever 404s, discord moved it - open devtools > network, type a name
+in the change-username box, copy the request url and pass it with `--auth-endpoint`.
+
 ## disclaimer
 
 this is for checking if a name you want is free. be nice to discord's api, keep your

@@ -68,6 +68,7 @@ dusc --pattern "co??"     # ? letter, # digit, * letter/digit, % anything
 dusc --three              # all 3 letter names
 dusc --four --workers 20
 dusc --file names.txt     # check a list from a file
+dusc --three --mullvad    # use all of mullvad's exit ips as proxies
 ```
 
 ## check from a file
@@ -121,11 +122,31 @@ socks5://user:pass@host:port
 see `proxies.txt.example`. residential proxies are best - some datacenter ips just get a
 flat 403 from discord.
 
-**on a vpn (mullvad etc)?** just run it while connected, all traffic goes through the vpn
-ip. when it hits a cooldown, switch to another server for a fresh ip and it keeps going.
-one ip at a time so it's not fast, but it's free and it's only you.
-
 without any of that it still works, just slower and you'll hit cooldowns sooner.
+
+## mullvad
+
+got [mullvad](https://mullvad.net)? the `--mullvad` flag turns it into a few hundred
+proxies for free, no proxy list needed:
+
+```bash
+mullvad connect          # connect first! (or use the app)
+dusc --three --mullvad
+```
+
+**how it works:** while you're connected to any mullvad server, every *other* server is
+reachable as a socks5 proxy on the internal network. so `--mullvad` grabs mullvad's relay
+list, turns each active wireguard server into `socks5h://...:1080`, and hands all ~500 of
+them to the pool as separate lanes. that's ~500 different exit ips rotating in parallel,
+which is what kills the cooldowns.
+
+- **connect to mullvad first.** the socks proxies only resolve inside the tunnel. if you're
+  not connected it'll warn you and try anyway, but every check will just error out.
+- workers auto-bump to **40** (vs 8) since you've got the ips to spread across. tune with
+  `--workers` - if you see `cooling down` a lot, drop it; if you never do, push it higher.
+- it ignores `proxies.txt` / `--proxies` while on (mullvad is your proxy source).
+- works with token mode too (`--tokens tokens.txt --mullvad`) - each token gets its own
+  mullvad exit ip so your accounts aren't all on one address.
 
 ## account token mode (advanced)
 

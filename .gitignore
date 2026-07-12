@@ -7,6 +7,7 @@ dist/
 venv/
 .pytest_cache/
 .DS_Store
+HANDOFF.md
 
 # your own stuff, don't commit
 proxies.txt
@@ -14,3 +15,4 @@ tokens.txt
 token.txt
 available.txt
 hits.txt
+crypto.txt

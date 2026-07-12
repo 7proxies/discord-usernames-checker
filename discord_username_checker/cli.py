@@ -8,13 +8,18 @@ import sys
 import questionary
 from rich.console import Console
 
-from . import banner, highlighter, patterns
+from . import banner, highlighter, mullvad, patterns
 from . import proxies as proxymod
 from . import results
 from .checker import AUTH_ENDPOINT, Checker
 
 # if a pattern is bigger than this we stream it instead of holding it in memory
 CAP = 300_000
+
+# default worker counts. mullvad hands us hundreds of exit ips so we can push
+# a lot harder than a single ip - 8 would waste all those lanes.
+DEFAULT_WORKERS = 8
+MULLVAD_WORKERS = 40
 
 
 def parse_args(argv=None):
@@ -25,11 +30,12 @@ def parse_args(argv=None):
     p.add_argument("--four", action="store_true", help="all 4 letter names")
     p.add_argument("--five", action="store_true", help="all 5 letter names")
     p.add_argument("--proxies", help="path to a proxies file")
+    p.add_argument("--mullvad", action="store_true", help="use mullvad's socks5 relays as proxies (connect to mullvad first)")
     p.add_argument("--token", help="check with one account token (against discord ToS, use an alt)")
     p.add_argument("--tokens", help="file with account tokens, one per line")
     p.add_argument("--auth-endpoint", default=AUTH_ENDPOINT, help="override the token check endpoint")
     p.add_argument("--out", default="available.txt", help="where to save free names")
-    p.add_argument("--workers", type=int, default=8, help="how many to check at once")
+    p.add_argument("--workers", type=int, default=None, help="how many to check at once (default 8, or 40 with --mullvad)")
     p.add_argument("--gap", type=float, default=0.6, help="min seconds between requests per ip (api mode)")
     p.add_argument("--token-gap", type=float, default=3.0, help="min seconds between requests per token")
     p.add_argument("--no-banner", action="store_true", help="skip the ascii art")
@@ -61,16 +67,49 @@ def load_usernames(path):
     return out
 
 
-def _load_proxies(settings, console):
-    path = settings["proxies"]
-    if not path:
-        return None
+def _load_proxy_file(path, console):
     if not os.path.exists(path):
         console.print(f"  [yellow]proxies file not found: {path}[/]")
         return None
     plist = proxymod.load(path)
     console.print(f"  [dim]using {len(plist)} proxies[/]")
     return plist
+
+
+def _load_mullvad(console):
+    if not mullvad.is_connected():
+        console.print("  [yellow]doesn't look like you're connected to mullvad, trying anyway[/]")
+    try:
+        plist = mullvad.fetch_proxies()
+    except Exception as e:
+        console.print(f"  couldn't fetch mullvad relays: {e}", markup=False, style="red")
+        return None
+    if not plist:
+        console.print("  [red]no mullvad relays came back[/]")
+        return None
+    random.shuffle(plist)  # spread the load instead of always starting at the same relay
+    console.print(f"  [dim]using {len(plist)} mullvad socks proxies[/]")
+    return plist
+
+
+def resolve_proxies(settings, console, ask):
+    if settings.get("mullvad"):
+        return _load_mullvad(console)
+    if settings.get("proxies"):
+        return _load_proxy_file(settings["proxies"], console)
+    # no proxies + api mode = one exit ip, discord rate-limits that fast
+    if settings["mode"] == "api" and not settings.get("proxy_ack"):
+        console.print("  [yellow]no proxies - checking from your single ip, discord will rate-limit you fast[/]")
+        if ask and sys.stdin.isatty():
+            path = questionary.text("proxies file? (blank = try anyway):").ask()
+            if path and os.path.exists(path):
+                settings["proxies"] = path
+                return _load_proxy_file(path, console)
+            if path:
+                console.print(f"  [yellow]no such file: {path}, trying anyway[/]")
+        console.print("  [yellow]going without proxies[/]")
+        settings["proxy_ack"] = True
+    return None
 
 
 def _resolve_tokens(settings):
@@ -82,8 +121,8 @@ def _resolve_tokens(settings):
     return []
 
 
-def run_names(names, total, settings, console):
-    plist = _load_proxies(settings, console)
+def run_names(names, total, settings, console, ask=False):
+    plist = resolve_proxies(settings, console, ask)
     mode = settings["mode"]
     tokens = None
     gap = settings["gap"]
@@ -116,7 +155,7 @@ def run_pattern(pattern, settings, console, ask):
         if not questionary.confirm(f"that's about {est:,} names, go?").ask():
             return
     names, total = build_names(pattern)
-    run_names(names, total, settings, console)
+    run_names(names, total, settings, console, ask)
 
 
 def run_file(path, settings, console, ask):
@@ -131,7 +170,7 @@ def run_file(path, settings, console, ask):
     if ask and len(names) > 2000:
         if not questionary.confirm(f"that's {len(names):,} names, go?").ask():
             return
-    run_names(names, len(names), settings, console)
+    run_names(names, len(names), settings, console, ask)
 
 
 def ask_pattern(console):
@@ -249,8 +288,11 @@ def main():
     if not args.no_banner:
         banner.show(console)
 
+    workers = args.workers
+    if workers is None:
+        workers = MULLVAD_WORKERS if args.mullvad else DEFAULT_WORKERS
     settings = {
-        "workers": args.workers,
+        "workers": workers,
         "proxies": args.proxies,
         "out": args.out,
         "gap": args.gap,
@@ -259,8 +301,12 @@ def main():
         "mode": "api",
         "tokens": args.tokens,
         "token_inline": [args.token] if args.token else None,
+        "mullvad": args.mullvad,
+        "proxy_ack": False,
     }
-    if not settings["proxies"] and os.path.exists("proxies.txt"):
+    if args.mullvad and args.proxies:
+        console.print("  [yellow]--mullvad is on, ignoring --proxies[/]")
+    if not args.mullvad and not settings["proxies"] and os.path.exists("proxies.txt"):
         settings["proxies"] = "proxies.txt"
     if args.token or args.tokens:
         settings["mode"] = "token"
